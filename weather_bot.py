@@ -3,46 +3,40 @@ import json
 import requests
 from datetime import datetime
 from urllib.parse import quote
+import tempfile
 
 import gspread
-from dotenv import load_dotenv
+from dotenv import load_dotenv, find_dotenv
 from google.oauth2.service_account import Credentials
 
 # ======================
 # CONFIGURATION
 # ======================
 
-# Load local .env if exists (for local runs)
-load_dotenv()
+# Load environment variables from .env (for local dev)
+load_dotenv(find_dotenv())
 
-# API keys and credentials
 OWM_API_KEY = os.getenv("OPENWEATHER_API_KEY")
 SLACK_WEBHOOK_URL = os.getenv("SLACK_WEBHOOK_URL")
-GOOGLE_CREDENTIALS_JSON = os.getenv("GOOGLE_CREDENTIALS_JSON")  # GitHub secret
+GOOGLE_CREDS_JSON = os.getenv("GOOGLE_CREDENTIALS_JSON")  # GitHub Actions secret
+GOOGLE_CREDENTIALS = os.getenv("GOOGLE_CREDENTIALS")      # local file
 
-# Weather location and units
 CITY = "New York"
 COUNTRY_CODE = "US"
 UNITS = "metric"
 
-# Alert thresholds
-PRECIP_THRESHOLD = 0.5  # 50% chance
-WIND_THRESHOLD = 10     # 10 m/s wind
+PRECIP_THRESHOLD = 0.5
+WIND_THRESHOLD = 10
 ALERT_KEYWORDS = ["tornado", "hurricane", "blizzard", "snow", "storm", "thunder", "rain"]
 
-# Severe weather order for prioritization
 SEVERE_WEATHERS = [
     "tornado", "hurricane", "blizzard", "thunderstorm",
     "extreme heat", "heat", "cold", "frost"
 ]
 
-# File to track alerts already sent locally
 ALERTED_FILE = "alerted.txt"
 
-# ======================
-# WEATHER ICONS & ADVISORIES
-# ======================
-
+# Weather icons and advisory mapping
 WEATHER_ICONS = {
     "clear sky": "☀️", "few clouds": "🌤️", "scattered clouds": "⛅",
     "broken clouds": "🌥️", "overcast clouds": "☁️", "light rain": "🌦️",
@@ -120,23 +114,29 @@ def get_advisory(conditions):
                 return tip
     return ""
 
-def get_google_credentials():
-    if GOOGLE_CREDENTIALS_JSON:
-        creds_dict = json.loads(GOOGLE_CREDENTIALS_JSON)
-        return Credentials.from_service_account_info(creds_dict, scopes=[
+def get_gspread_client():
+    """Return a gspread client depending on local or GitHub Actions."""
+    if GOOGLE_CREDS_JSON:
+        # GitHub Actions path: write secret to temp file
+        creds_dict = json.loads(GOOGLE_CREDS_JSON)
+        tmp_file = tempfile.NamedTemporaryFile(mode="w+", delete=False, suffix=".json")
+        json.dump(creds_dict, tmp_file)
+        tmp_file.flush()
+        creds = Credentials.from_service_account_file(tmp_file.name, scopes=[
             "https://www.googleapis.com/auth/spreadsheets",
             "https://www.googleapis.com/auth/drive",
         ])
     else:
-        return Credentials.from_service_account_file("credentials.json", scopes=[
+        # Local path
+        creds = Credentials.from_service_account_file(GOOGLE_CREDENTIALS, scopes=[
             "https://www.googleapis.com/auth/spreadsheets",
             "https://www.googleapis.com/auth/drive",
         ])
+    return gspread.authorize(creds)
 
 def log_to_google_sheets(row):
     try:
-        creds = get_google_credentials()
-        client = gspread.authorize(creds)
+        client = get_gspread_client()
         sheet = client.open("WeatherBotLogs").sheet1
         sheet.append_row(row)
     except Exception as e:
@@ -177,13 +177,14 @@ def main():
 
     temp_c = forecast["main"]["temp"]
     temp_f = round(temp_c * 9 / 5 + 32, 1)
+
     conditions = [w["description"] for w in forecast["weather"]]
     icons = [WEATHER_ICONS.get(c.lower(), "🌡️") for c in conditions]
+
     wind_speed = forecast["wind"]["speed"]
     precip_prob = round(float(forecast.get("pop", 0)), 2)
     precip_percent = int(precip_prob * 100)
 
-    # Log to Google Sheets
     log_to_google_sheets([
         logged_at,
         forecast_time,
@@ -193,7 +194,6 @@ def main():
         precip_prob
     ])
 
-    # Alert logic
     if should_send_alert(conditions, precip_prob, wind_speed):
         alerted = load_alerted_timestamps()
         if forecast_time in alerted:
