@@ -1,37 +1,43 @@
 import os
 import json
-import tempfile
 import requests
 from datetime import datetime
 from urllib.parse import quote
 
 import gspread
-from dotenv import load_dotenv, find_dotenv
+from dotenv import load_dotenv
 from google.oauth2.service_account import Credentials
 
 # ======================
 # CONFIGURATION
 # ======================
 
-load_dotenv(find_dotenv())
+# Load local .env if exists (for local runs)
+load_dotenv()
 
+# API keys and credentials
 OWM_API_KEY = os.getenv("OPENWEATHER_API_KEY")
 SLACK_WEBHOOK_URL = os.getenv("SLACK_WEBHOOK_URL")
-GOOGLE_CREDENTIALS = os.getenv("GOOGLE_CREDENTIALS")  # local path
-GOOGLE_CREDENTIALS_JSON = os.getenv("GOOGLE_CREDENTIALS_JSON")  # GitHub secret JSON
+GOOGLE_CREDENTIALS_JSON = os.getenv("GOOGLE_CREDENTIALS_JSON")  # GitHub secret
 
+# Weather location and units
 CITY = "New York"
 COUNTRY_CODE = "US"
 UNITS = "metric"
 
-PRECIP_THRESHOLD = 0.5
-WIND_THRESHOLD = 10
+# Alert thresholds
+PRECIP_THRESHOLD = 0.5  # 50% chance
+WIND_THRESHOLD = 10     # 10 m/s wind
 ALERT_KEYWORDS = ["tornado", "hurricane", "blizzard", "snow", "storm", "thunder", "rain"]
 
+# Severe weather order for prioritization
 SEVERE_WEATHERS = [
     "tornado", "hurricane", "blizzard", "thunderstorm",
     "extreme heat", "heat", "cold", "frost"
 ]
+
+# File to track alerts already sent locally
+ALERTED_FILE = "alerted.txt"
 
 # ======================
 # WEATHER ICONS & ADVISORIES
@@ -114,58 +120,27 @@ def get_advisory(conditions):
                 return tip
     return ""
 
-def init_google_sheet():
-    """Authorize Google Sheets client and return sheet object."""
-    try:
-        scope = [
+def get_google_credentials():
+    if GOOGLE_CREDENTIALS_JSON:
+        creds_dict = json.loads(GOOGLE_CREDENTIALS_JSON)
+        return Credentials.from_service_account_info(creds_dict, scopes=[
             "https://www.googleapis.com/auth/spreadsheets",
             "https://www.googleapis.com/auth/drive",
-        ]
+        ])
+    else:
+        return Credentials.from_service_account_file("credentials.json", scopes=[
+            "https://www.googleapis.com/auth/spreadsheets",
+            "https://www.googleapis.com/auth/drive",
+        ])
 
-        if GOOGLE_CREDENTIALS_JSON:
-            creds_dict = json.loads(GOOGLE_CREDENTIALS_JSON)
-            with tempfile.NamedTemporaryFile(mode="w+", delete=False) as f:
-                json.dump(creds_dict, f)
-                creds_path = f.name
-        else:
-            creds_path = GOOGLE_CREDENTIALS
-
-        creds = Credentials.from_service_account_file(creds_path, scopes=scope)
+def log_to_google_sheets(row):
+    try:
+        creds = get_google_credentials()
         client = gspread.authorize(creds)
         sheet = client.open("WeatherBotLogs").sheet1
-        return sheet
-
-    except Exception as e:
-        print(f"Google Sheets init failed: {e}")
-        return None
-
-def load_alerted_timestamps(sheet):
-    try:
-        records = sheet.get_all_records()
-        return set(r['Forecast Time'] for r in records if r.get('Alert Sent') == 'Yes')
-    except Exception:
-        return set()
-
-def mark_alert_sent(sheet, forecast_time):
-    try:
-        records = sheet.get_all_records()
-        for i, r in enumerate(records, start=2):
-            if r['Forecast Time'] == forecast_time:
-                sheet.update_cell(i, sheet.find("Alert Sent").col, "Yes")
-                return
-    except Exception as e:
-        print(f"Failed to mark alert in Google Sheet: {e}")
-
-def log_to_google_sheets(row, alert_sent="No"):
-    sheet = init_google_sheet()
-    if not sheet:
-        return None
-    try:
-        sheet.append_row(row + [alert_sent])
-        return sheet
+        sheet.append_row(row)
     except Exception as e:
         print(f"Google Sheets logging failed: {e}")
-        return None
 
 def send_slack_alert(message):
     try:
@@ -175,8 +150,19 @@ def send_slack_alert(message):
     except requests.RequestException as e:
         print(f"Slack alert request failed: {e}")
 
+def load_alerted_timestamps():
+    try:
+        with open(ALERTED_FILE, "r") as f:
+            return set(line.strip() for line in f)
+    except FileNotFoundError:
+        return set()
+
+def save_alerted_timestamp(forecast_time):
+    with open(ALERTED_FILE, "a") as f:
+        f.write(f"{forecast_time}\n")
+
 # ======================
-# MAIN EXECUTION
+# MAIN
 # ======================
 
 def main():
@@ -191,15 +177,14 @@ def main():
 
     temp_c = forecast["main"]["temp"]
     temp_f = round(temp_c * 9 / 5 + 32, 1)
-
     conditions = [w["description"] for w in forecast["weather"]]
     icons = [WEATHER_ICONS.get(c.lower(), "🌡️") for c in conditions]
-
     wind_speed = forecast["wind"]["speed"]
     precip_prob = round(float(forecast.get("pop", 0)), 2)
     precip_percent = int(precip_prob * 100)
 
-    sheet = log_to_google_sheets([
+    # Log to Google Sheets
+    log_to_google_sheets([
         logged_at,
         forecast_time,
         temp_c,
@@ -208,12 +193,12 @@ def main():
         precip_prob
     ])
 
-    if sheet is None:
-        return
+    # Alert logic
+    if should_send_alert(conditions, precip_prob, wind_speed):
+        alerted = load_alerted_timestamps()
+        if forecast_time in alerted:
+            return
 
-    alerted = load_alerted_timestamps(sheet)
-
-    if should_send_alert(conditions, precip_prob, wind_speed) and forecast_time not in alerted:
         advisory = get_advisory(conditions)
         friendly_date = datetime.strptime(forecast_time, "%Y-%m-%d %H:%M:%S").strftime("%A, %d %B %Y at %I:%M %p")
 
@@ -236,7 +221,7 @@ def main():
             message += f"Safety Reminder: {advisory}"
 
         send_slack_alert(message)
-        mark_alert_sent(sheet, forecast_time)
+        save_alerted_timestamp(forecast_time)
 
 if __name__ == "__main__":
     main()
