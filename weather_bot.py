@@ -13,32 +13,25 @@ from google.oauth2.service_account import Credentials
 # CONFIGURATION
 # ======================
 
-# Load local .env if present
 load_dotenv(find_dotenv())
 
-# Environment variables / secrets
-OWM_API_KEY = os.environ.get("OPENWEATHER_API_KEY")
-SLACK_WEBHOOK_URL = os.environ.get("SLACK_WEBHOOK_URL")
-GOOGLE_CREDENTIALS = os.environ.get("GOOGLE_CREDENTIALS")  # either path (local) or JSON string (GitHub)
+OWM_API_KEY = os.getenv("OPENWEATHER_API_KEY")
+SLACK_WEBHOOK_URL = os.getenv("SLACK_WEBHOOK_URL")
+GOOGLE_CREDENTIALS = os.getenv("GOOGLE_CREDENTIALS")  # local path
+GOOGLE_CREDENTIALS_JSON = os.getenv("GOOGLE_CREDENTIALS_JSON")  # GitHub secret JSON
 
-# Weather location and units
 CITY = "New York"
 COUNTRY_CODE = "US"
 UNITS = "metric"
 
-# Alert thresholds
-PRECIP_THRESHOLD = 0.5  # 50% chance
-WIND_THRESHOLD = 10     # 10 m/s wind
+PRECIP_THRESHOLD = 0.5
+WIND_THRESHOLD = 10
 ALERT_KEYWORDS = ["tornado", "hurricane", "blizzard", "snow", "storm", "thunder", "rain"]
 
-# Severe weather order for prioritization
 SEVERE_WEATHERS = [
     "tornado", "hurricane", "blizzard", "thunderstorm",
     "extreme heat", "heat", "cold", "frost"
 ]
-
-# File to track alerts already sent
-ALERTED_FILE = "alerted.txt"
 
 # ======================
 # WEATHER ICONS & ADVISORIES
@@ -63,7 +56,6 @@ ADVISORY_MAP = {
     "lightning": "Avoid open spaces; unplug electronics.",
     "heavy rain": "Flooding may occur in low areas.",
     "rain": "Drive cautiously; use headlights.",
-    "drizzle": "Roads may be slick; allow extra travel time.",
     "fog": "Visibility reduced; drive slowly.",
     "mist": "Drive with care.",
     "haze": "Air quality poor; limit outdoor activity.",
@@ -86,11 +78,9 @@ ADVISORY_MAP = {
 # ======================
 
 def build_forecast_url():
-    """Build OpenWeather API URL with proper encoding."""
     return f"https://api.openweathermap.org/data/2.5/forecast?q={quote(CITY)},{COUNTRY_CODE}&appid={OWM_API_KEY}&units={UNITS}"
 
 def get_forecast():
-    """Fetch next forecast slice from OpenWeather."""
     try:
         response = requests.get(build_forecast_url(), timeout=10)
         response.raise_for_status()
@@ -99,16 +89,14 @@ def get_forecast():
         raise RuntimeError(f"Forecast API request failed: {e}")
 
 def should_send_alert(conditions, precip, wind):
-    """Decide if an alert should be sent based on keywords or thresholds."""
     conditions_lower = [c.lower() for c in conditions]
     return (
-        any(keyword in cond for keyword in ALERT_KEYWORDS for cond in conditions_lower)
+        any(keyword in cond for cond in conditions_lower for keyword in ALERT_KEYWORDS)
         or precip >= PRECIP_THRESHOLD
         or wind >= WIND_THRESHOLD
     )
 
 def get_severe_condition(conditions):
-    """Return the most severe condition from the list based on SEVERE_WEATHERS."""
     conditions_lower = [c.lower() for c in conditions]
     for severe in SEVERE_WEATHERS:
         for cond in conditions_lower:
@@ -117,64 +105,75 @@ def get_severe_condition(conditions):
     return None
 
 def get_advisory(conditions):
-    """Return the advisory text for the most severe condition."""
     severe = get_severe_condition(conditions)
     if severe:
         return ADVISORY_MAP.get(severe, "")
-    # fallback to first matching advisory
     for cond in conditions:
         for key, tip in ADVISORY_MAP.items():
             if key in cond.lower():
                 return tip
     return ""
 
-def get_google_creds():
-    """Return Google Credentials object compatible with local or GitHub secrets."""
-    scope = ["https://www.googleapis.com/auth/spreadsheets",
-             "https://www.googleapis.com/auth/drive"]
-
-    if GOOGLE_CREDENTIALS and os.path.exists(GOOGLE_CREDENTIALS):
-        # Local file path
-        return Credentials.from_service_account_file(GOOGLE_CREDENTIALS, scopes=scope)
-    else:
-        # JSON string from GitHub Secrets
-        creds_dict = json.loads(GOOGLE_CREDENTIALS)
-        with tempfile.NamedTemporaryFile(mode="w+", delete=False) as f:
-            json.dump(creds_dict, f)
-            temp_path = f.name
-        return Credentials.from_service_account_file(temp_path, scopes=scope)
-
-def log_to_google_sheets(row):
-    """Append a row to Google Sheets (always logs)."""
+def init_google_sheet():
+    """Authorize Google Sheets client and return sheet object."""
     try:
-        creds = get_google_creds()
+        scope = [
+            "https://www.googleapis.com/auth/spreadsheets",
+            "https://www.googleapis.com/auth/drive",
+        ]
+
+        if GOOGLE_CREDENTIALS_JSON:
+            creds_dict = json.loads(GOOGLE_CREDENTIALS_JSON)
+            with tempfile.NamedTemporaryFile(mode="w+", delete=False) as f:
+                json.dump(creds_dict, f)
+                creds_path = f.name
+        else:
+            creds_path = GOOGLE_CREDENTIALS
+
+        creds = Credentials.from_service_account_file(creds_path, scopes=scope)
         client = gspread.authorize(creds)
         sheet = client.open("WeatherBotLogs").sheet1
-        sheet.append_row(row, value_input_option='USER_ENTERED')
+        return sheet
+
+    except Exception as e:
+        print(f"Google Sheets init failed: {e}")
+        return None
+
+def load_alerted_timestamps(sheet):
+    try:
+        records = sheet.get_all_records()
+        return set(r['Forecast Time'] for r in records if r.get('Alert Sent') == 'Yes')
+    except Exception:
+        return set()
+
+def mark_alert_sent(sheet, forecast_time):
+    try:
+        records = sheet.get_all_records()
+        for i, r in enumerate(records, start=2):
+            if r['Forecast Time'] == forecast_time:
+                sheet.update_cell(i, sheet.find("Alert Sent").col, "Yes")
+                return
+    except Exception as e:
+        print(f"Failed to mark alert in Google Sheet: {e}")
+
+def log_to_google_sheets(row, alert_sent="No"):
+    sheet = init_google_sheet()
+    if not sheet:
+        return None
+    try:
+        sheet.append_row(row + [alert_sent])
+        return sheet
     except Exception as e:
         print(f"Google Sheets logging failed: {e}")
+        return None
 
 def send_slack_alert(message):
-    """Send alert to Slack."""
     try:
         resp = requests.post(SLACK_WEBHOOK_URL, json={"text": message}, timeout=5)
         if resp.status_code != 200:
             print(f"Slack alert failed: {resp.text}")
     except requests.RequestException as e:
         print(f"Slack alert request failed: {e}")
-
-def load_alerted_timestamps():
-    """Load timestamps of forecasts already alerted to avoid duplicates."""
-    try:
-        with open(ALERTED_FILE, "r") as f:
-            return set(line.strip() for line in f)
-    except FileNotFoundError:
-        return set()
-
-def save_alerted_timestamp(forecast_time):
-    """Save timestamp to prevent duplicate alerts."""
-    with open(ALERTED_FILE, "a") as f:
-        f.write(f"{forecast_time}\n")
 
 # ======================
 # MAIN EXECUTION
@@ -200,8 +199,7 @@ def main():
     precip_prob = round(float(forecast.get("pop", 0)), 2)
     precip_percent = int(precip_prob * 100)
 
-    # Always log to Google Sheets
-    log_to_google_sheets([
+    sheet = log_to_google_sheets([
         logged_at,
         forecast_time,
         temp_c,
@@ -210,19 +208,18 @@ def main():
         precip_prob
     ])
 
-    # Alert logic
-    if should_send_alert(conditions, precip_prob, wind_speed):
-        alerted = load_alerted_timestamps()
-        if forecast_time in alerted:
-            return  # Skip duplicate alert
+    if sheet is None:
+        return
 
+    alerted = load_alerted_timestamps(sheet)
+
+    if should_send_alert(conditions, precip_prob, wind_speed) and forecast_time not in alerted:
         advisory = get_advisory(conditions)
         friendly_date = datetime.strptime(forecast_time, "%Y-%m-%d %H:%M:%S").strftime("%A, %d %B %Y at %I:%M %p")
 
-        # Determine precipitation phrase
         if any("snow" in c.lower() for c in conditions):
             precip_phrase = "chance of snow"
-        elif any("rain" in c.lower() for c in conditions) or any("drizzle" in c.lower() for c in conditions):
+        elif any("rain" in c.lower() or "drizzle" in c.lower() for c in conditions):
             precip_phrase = "chance of rain"
         else:
             precip_phrase = "chance of precipitation"
@@ -230,7 +227,6 @@ def main():
         severe_condition = get_severe_condition(conditions)
         icon = WEATHER_ICONS.get(severe_condition, icons[0])
 
-        # Construct Slack message
         message = (
             f":warning: {icon} NYC Weather Alert {icon} :warning:\n"
             f"{', '.join(desc.title() for desc in conditions)} expected on {friendly_date} at {temp_f}°F.\n"
@@ -240,7 +236,7 @@ def main():
             message += f"Safety Reminder: {advisory}"
 
         send_slack_alert(message)
-        save_alerted_timestamp(forecast_time)
+        mark_alert_sent(sheet, forecast_time)
 
 if __name__ == "__main__":
     main()
