@@ -3,30 +3,30 @@ import json
 import requests
 from datetime import datetime
 from urllib.parse import quote
-import tempfile
 
 import gspread
-from dotenv import load_dotenv, find_dotenv
+from dotenv import load_dotenv
 from google.oauth2.service_account import Credentials
+import pytz  # for timezone if needed
 
 # ======================
 # CONFIGURATION
 # ======================
 
-# Load environment variables from .env (for local dev)
-load_dotenv(find_dotenv())
+# Load environment variables
+load_dotenv()  # automatically finds .env in current folder
 
 OWM_API_KEY = os.getenv("OPENWEATHER_API_KEY")
 SLACK_WEBHOOK_URL = os.getenv("SLACK_WEBHOOK_URL")
-GOOGLE_CREDS_JSON = os.getenv("GOOGLE_CREDENTIALS_JSON")  # GitHub Actions secret
-GOOGLE_CREDENTIALS = os.getenv("GOOGLE_CREDENTIALS")      # local file
+GOOGLE_CREDENTIALS = os.getenv("GOOGLE_CREDENTIALS")  # local file
+GOOGLE_CREDENTIALS_JSON = os.getenv("GOOGLE_CREDENTIALS_JSON")  # GitHub secret
 
 CITY = "New York"
 COUNTRY_CODE = "US"
 UNITS = "metric"
 
-PRECIP_THRESHOLD = 0.5
-WIND_THRESHOLD = 10
+PRECIP_THRESHOLD = 0.5  # 50%
+WIND_THRESHOLD = 10     # m/s
 ALERT_KEYWORDS = ["tornado", "hurricane", "blizzard", "snow", "storm", "thunder", "rain"]
 
 SEVERE_WEATHERS = [
@@ -36,7 +36,9 @@ SEVERE_WEATHERS = [
 
 ALERTED_FILE = "alerted.txt"
 
-# Weather icons and advisory mapping
+# ======================
+# WEATHER ICONS & ADVISORIES
+# ======================
 WEATHER_ICONS = {
     "clear sky": "☀️", "few clouds": "🌤️", "scattered clouds": "⛅",
     "broken clouds": "🌥️", "overcast clouds": "☁️", "light rain": "🌦️",
@@ -114,29 +116,21 @@ def get_advisory(conditions):
                 return tip
     return ""
 
-def get_gspread_client():
-    """Return a gspread client depending on local or GitHub Actions."""
-    if GOOGLE_CREDS_JSON:
-        # GitHub Actions path: write secret to temp file
-        creds_dict = json.loads(GOOGLE_CREDS_JSON)
-        tmp_file = tempfile.NamedTemporaryFile(mode="w+", delete=False, suffix=".json")
-        json.dump(creds_dict, tmp_file)
-        tmp_file.flush()
-        creds = Credentials.from_service_account_file(tmp_file.name, scopes=[
-            "https://www.googleapis.com/auth/spreadsheets",
-            "https://www.googleapis.com/auth/drive",
-        ])
-    else:
-        # Local path
-        creds = Credentials.from_service_account_file(GOOGLE_CREDENTIALS, scopes=[
-            "https://www.googleapis.com/auth/spreadsheets",
-            "https://www.googleapis.com/auth/drive",
-        ])
-    return gspread.authorize(creds)
-
 def log_to_google_sheets(row):
     try:
-        client = get_gspread_client()
+        scope = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
+
+        # Local or GitHub
+        creds_file = os.getenv("GOOGLE_CREDENTIALS") or "credentials.json"
+
+        if os.path.exists(creds_file):
+            creds = Credentials.from_service_account_file(creds_file, scopes=scope)
+        else:
+            creds_json = os.getenv("GOOGLE_CREDENTIALS_JSON")
+            creds_dict = json.loads(creds_json)
+            creds = Credentials.from_service_account_info(creds_dict, scopes=scope)
+
+        client = gspread.authorize(creds)
         sheet = client.open("WeatherBotLogs").sheet1
         sheet.append_row(row)
     except Exception as e:
@@ -162,7 +156,7 @@ def save_alerted_timestamp(forecast_time):
         f.write(f"{forecast_time}\n")
 
 # ======================
-# MAIN
+# MAIN EXECUTION
 # ======================
 
 def main():
@@ -177,7 +171,6 @@ def main():
 
     temp_c = forecast["main"]["temp"]
     temp_f = round(temp_c * 9 / 5 + 32, 1)
-
     conditions = [w["description"] for w in forecast["weather"]]
     icons = [WEATHER_ICONS.get(c.lower(), "🌡️") for c in conditions]
 
@@ -185,6 +178,7 @@ def main():
     precip_prob = round(float(forecast.get("pop", 0)), 2)
     precip_percent = int(precip_prob * 100)
 
+    # Log to Google Sheets
     log_to_google_sheets([
         logged_at,
         forecast_time,
@@ -194,10 +188,11 @@ def main():
         precip_prob
     ])
 
+    # Alert logic
     if should_send_alert(conditions, precip_prob, wind_speed):
         alerted = load_alerted_timestamps()
         if forecast_time in alerted:
-            return
+            return  # skip duplicate
 
         advisory = get_advisory(conditions)
         friendly_date = datetime.strptime(forecast_time, "%Y-%m-%d %H:%M:%S").strftime("%A, %d %B %Y at %I:%M %p")
@@ -222,6 +217,7 @@ def main():
 
         send_slack_alert(message)
         save_alerted_timestamp(forecast_time)
+
 
 if __name__ == "__main__":
     main()
