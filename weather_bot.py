@@ -1,4 +1,6 @@
 import os
+import json
+import tempfile
 import requests
 from datetime import datetime
 from urllib.parse import quote
@@ -11,13 +13,13 @@ from google.oauth2.service_account import Credentials
 # CONFIGURATION
 # ======================
 
-# Load environment variables from .env
+# Load local .env if present
 load_dotenv(find_dotenv())
 
-# API keys and credentials
-OWM_API_KEY = os.getenv("OPENWEATHER_API_KEY")
-SLACK_WEBHOOK_URL = os.getenv("SLACK_WEBHOOK_URL")
-GOOGLE_CREDENTIALS = os.getenv("GOOGLE_CREDENTIALS")
+# Environment variables / secrets
+OWM_API_KEY = os.environ.get("OPENWEATHER_API_KEY")
+SLACK_WEBHOOK_URL = os.environ.get("SLACK_WEBHOOK_URL")
+GOOGLE_CREDENTIALS = os.environ.get("GOOGLE_CREDENTIALS")  # either path (local) or JSON string (GitHub)
 
 # Weather location and units
 CITY = "New York"
@@ -100,7 +102,7 @@ def should_send_alert(conditions, precip, wind):
     """Decide if an alert should be sent based on keywords or thresholds."""
     conditions_lower = [c.lower() for c in conditions]
     return (
-        any(keyword in cond for cond in conditions_lower for keyword in ALERT_KEYWORDS)
+        any(keyword in cond for keyword in ALERT_KEYWORDS for cond in conditions_lower)
         or precip >= PRECIP_THRESHOLD
         or wind >= WIND_THRESHOLD
     )
@@ -126,17 +128,29 @@ def get_advisory(conditions):
                 return tip
     return ""
 
+def get_google_creds():
+    """Return Google Credentials object compatible with local or GitHub secrets."""
+    scope = ["https://www.googleapis.com/auth/spreadsheets",
+             "https://www.googleapis.com/auth/drive"]
+
+    if GOOGLE_CREDENTIALS and os.path.exists(GOOGLE_CREDENTIALS):
+        # Local file path
+        return Credentials.from_service_account_file(GOOGLE_CREDENTIALS, scopes=scope)
+    else:
+        # JSON string from GitHub Secrets
+        creds_dict = json.loads(GOOGLE_CREDENTIALS)
+        with tempfile.NamedTemporaryFile(mode="w+", delete=False) as f:
+            json.dump(creds_dict, f)
+            temp_path = f.name
+        return Credentials.from_service_account_file(temp_path, scopes=scope)
+
 def log_to_google_sheets(row):
     """Append a row to Google Sheets (always logs)."""
     try:
-        scope = [
-            "https://www.googleapis.com/auth/spreadsheets",
-            "https://www.googleapis.com/auth/drive",
-        ]
-        creds = Credentials.from_service_account_file(GOOGLE_CREDENTIALS, scopes=scope)
+        creds = get_google_creds()
         client = gspread.authorize(creds)
         sheet = client.open("WeatherBotLogs").sheet1
-        sheet.append_row(row)
+        sheet.append_row(row, value_input_option='USER_ENTERED')
     except Exception as e:
         print(f"Google Sheets logging failed: {e}")
 
@@ -208,7 +222,7 @@ def main():
         # Determine precipitation phrase
         if any("snow" in c.lower() for c in conditions):
             precip_phrase = "chance of snow"
-        elif any("rain" in c.lower() or "drizzle" in c.lower() for c in conditions):
+        elif any("rain" in c.lower() for c in conditions) or any("drizzle" in c.lower() for c in conditions):
             precip_phrase = "chance of rain"
         else:
             precip_phrase = "chance of precipitation"
