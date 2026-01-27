@@ -1,13 +1,13 @@
 name: Weather Bot
 
-# Trigger manually or every hour
+# Trigger manually or on a schedule
 on:
-  workflow_dispatch:          # Manual run
-  schedule:                   # Scheduled run
-    - cron: '0 * * * *'       # Every hour at minute 0, UTC
+  workflow_dispatch:      # allows manual run
+  schedule:
+    - cron: '0 * * * *'  # runs hourly
 
 jobs:
-  run-weather:
+  run-weather-bot:
     runs-on: ubuntu-latest
 
     env:
@@ -16,18 +16,19 @@ jobs:
       GOOGLE_CREDENTIALS_JSON: ${{ secrets.GOOGLE_CREDENTIALS_JSON }}
 
     steps:
-      - name: Checkout repo
+      - name: Checkout code
         uses: actions/checkout@v3
 
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
-          python-version: '3.x'
+          python-version: '3.11'
 
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install gspread requests python-dotenv google-auth
+          pip install requests gspread google-auth python-dotenv
 
       - name: Run Weather Bot
-        run: python weather_bot.py
+        run: |
+          python weather_bot.py
