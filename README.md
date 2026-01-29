@@ -33,7 +33,10 @@ weather-alert-bot/
 
 ---
 
-## 3️⃣ __Google Sheet Logging__
+**Google Sheet:**  
+[View Weather Alert Data Sheet](https://docs.google.com/spreadsheets/d/1oS-NxBStujxZwpABxfBMpu_DWZ4Nj653yx6v0W52qV0/edit?gid=0)
+
+> ⚠️ Anyone with this link can view the sheet. Contact the project owner if you need edit access.
 
 **Columns:**
 
