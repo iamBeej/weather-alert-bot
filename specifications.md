@@ -1,4 +1,5 @@
 Test Project: Weather Alert Bot
+
 Build a Python bot that:
 `Pulls weather data from OpenWeatherMap API (free tier)`
 `Logs forecasts to a Google Sheet with clean, visual formatting` `Posts to Slack when snow or storms are expected`
@@ -15,7 +16,3 @@ Requirements:
 `Include README with setup instructions`
 `Should run as a Python script I can execute`
 `AI tools: Use ChatGPT/Claude to help you build this. If you need API credits, let me know - but if you're proficient, you probably have access already.`
-
-Timeline: 1 week (estimate 10-15 hours)`
-Pay: `$50 for this test project.`
-If it goes well, we'll discuss ongoing work (~$600/month, 20 hrs/week).`

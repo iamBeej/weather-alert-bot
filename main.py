@@ -22,7 +22,7 @@ GOOGLE_CREDS_JSON = os.getenv("GOOGLE_CREDENTIALS_JSON")  # GitHub Actions secre
 GOOGLE_CREDENTIALS = os.getenv("GOOGLE_CREDENTIALS")      # local file
 
 # ======================
-# RUN TYPE DETECTION
+# RUN TYPE DETECTIONl
 # ======================
 # Local runs = manual
 # GitHub runs = passed from workflow_dispatch or default scheduled
