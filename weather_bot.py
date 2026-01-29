@@ -1,7 +1,8 @@
 import os
 import json
 import requests
-from datetime import datetime
+from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
 from urllib.parse import quote
 import tempfile
 
@@ -117,7 +118,6 @@ def get_advisory(conditions):
 def get_gspread_client():
     """Return a gspread client depending on local or GitHub Actions."""
     if GOOGLE_CREDS_JSON:
-        # GitHub Actions path: write secret to temp file
         creds_dict = json.loads(GOOGLE_CREDS_JSON)
         tmp_file = tempfile.NamedTemporaryFile(mode="w+", delete=False, suffix=".json")
         json.dump(creds_dict, tmp_file)
@@ -127,7 +127,6 @@ def get_gspread_client():
             "https://www.googleapis.com/auth/drive",
         ])
     else:
-        # Local path
         creds = Credentials.from_service_account_file(GOOGLE_CREDENTIALS, scopes=[
             "https://www.googleapis.com/auth/spreadsheets",
             "https://www.googleapis.com/auth/drive",
@@ -166,14 +165,19 @@ def save_alerted_timestamp(forecast_time):
 # ======================
 
 def main():
+    ny_tz = ZoneInfo("America/New_York")
+
     try:
         forecast = get_forecast()
     except RuntimeError as e:
         print(e)
         return
 
-    logged_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    forecast_time = forecast["dt_txt"]
+    # Convert timestamps to NYC
+    logged_at = datetime.now(timezone.utc).astimezone(ny_tz).strftime("%Y-%m-%d %H:%M:%S")
+    utc_forecast_time = datetime.strptime(forecast["dt_txt"], "%Y-%m-%d %H:%M:%S").replace(tzinfo=timezone.utc)
+    forecast_time_ny = utc_forecast_time.astimezone(ny_tz)
+    forecast_time = forecast_time_ny.strftime("%Y-%m-%d %H:%M:%S")
 
     temp_c = forecast["main"]["temp"]
     temp_f = round(temp_c * 9 / 5 + 32, 1)
@@ -200,7 +204,7 @@ def main():
             return
 
         advisory = get_advisory(conditions)
-        friendly_date = datetime.strptime(forecast_time, "%Y-%m-%d %H:%M:%S").strftime("%A, %d %B %Y at %I:%M %p")
+        friendly_date = forecast_time_ny.strftime("%A, %d %B %Y at %I:%M %p")
 
         if any("snow" in c.lower() for c in conditions):
             precip_phrase = "chance of snow"
