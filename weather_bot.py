@@ -1,8 +1,7 @@
 import os
 import json
 import requests
-from datetime import datetime, timezone
-from zoneinfo import ZoneInfo
+from datetime import datetime
 from urllib.parse import quote
 import tempfile
 
@@ -21,6 +20,23 @@ OWM_API_KEY = os.getenv("OPENWEATHER_API_KEY")
 SLACK_WEBHOOK_URL = os.getenv("SLACK_WEBHOOK_URL")
 GOOGLE_CREDS_JSON = os.getenv("GOOGLE_CREDENTIALS_JSON")  # GitHub Actions secret
 GOOGLE_CREDENTIALS = os.getenv("GOOGLE_CREDENTIALS")      # local file
+
+# ======================
+# RUN TYPE DETECTION
+# ======================
+# Local runs = manual
+# GitHub runs = passed from workflow_dispatch or default scheduled
+
+if "GITHUB_ACTIONS" in os.environ:
+    # running inside GitHub Actions
+    RUN_TYPE = os.getenv("RUN_TYPE", "Scheduled")  # passed from workflow YAML
+else:
+    # running locally
+    RUN_TYPE = "Manual"
+
+# ======================
+# WEATHER SETTINGS
+# ======================
 
 CITY = "New York"
 COUNTRY_CODE = "US"
@@ -116,7 +132,6 @@ def get_advisory(conditions):
     return ""
 
 def get_gspread_client():
-    """Return a gspread client depending on local or GitHub Actions."""
     if GOOGLE_CREDS_JSON:
         creds_dict = json.loads(GOOGLE_CREDS_JSON)
         tmp_file = tempfile.NamedTemporaryFile(mode="w+", delete=False, suffix=".json")
@@ -165,19 +180,14 @@ def save_alerted_timestamp(forecast_time):
 # ======================
 
 def main():
-    ny_tz = ZoneInfo("America/New_York")
-
     try:
         forecast = get_forecast()
     except RuntimeError as e:
         print(e)
         return
 
-    # Convert timestamps to NYC
-    logged_at = datetime.now(timezone.utc).astimezone(ny_tz).strftime("%Y-%m-%d %H:%M:%S")
-    utc_forecast_time = datetime.strptime(forecast["dt_txt"], "%Y-%m-%d %H:%M:%S").replace(tzinfo=timezone.utc)
-    forecast_time_ny = utc_forecast_time.astimezone(ny_tz)
-    forecast_time = forecast_time_ny.strftime("%Y-%m-%d %H:%M:%S")
+    logged_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    forecast_time = forecast["dt_txt"]
 
     temp_c = forecast["main"]["temp"]
     temp_f = round(temp_c * 9 / 5 + 32, 1)
@@ -189,13 +199,15 @@ def main():
     precip_prob = round(float(forecast.get("pop", 0)), 2)
     precip_percent = int(precip_prob * 100)
 
+    # Log to Google Sheets with run type
     log_to_google_sheets([
         logged_at,
         forecast_time,
         temp_c,
         " / ".join(f"{icon} {desc.title()}" for icon, desc in zip(icons, conditions)),
         wind_speed,
-        precip_prob
+        precip_prob,
+        RUN_TYPE
     ])
 
     if should_send_alert(conditions, precip_prob, wind_speed):
@@ -204,7 +216,7 @@ def main():
             return
 
         advisory = get_advisory(conditions)
-        friendly_date = forecast_time_ny.strftime("%A, %d %B %Y at %I:%M %p")
+        friendly_date = datetime.strptime(forecast_time, "%Y-%m-%d %H:%M:%S").strftime("%A, %d %B %Y at %I:%M %p")
 
         if any("snow" in c.lower() for c in conditions):
             precip_phrase = "chance of snow"
