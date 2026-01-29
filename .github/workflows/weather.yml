@@ -2,7 +2,7 @@ name: Weather Bot
 
 # Trigger manually or on a schedule
 on:
-  workflow_dispatch:      # allows manual run
+  workflow_dispatch:      # manual run
   schedule:
     - cron: '0 * * * *'  # runs hourly
 
@@ -29,6 +29,14 @@ jobs:
           python -m pip install --upgrade pip
           pip install requests gspread google-auth python-dotenv
 
-      - name: Run Weather Bot
+      - name: Determine run type
+        id: set_run_type
         run: |
-          python weather_bot.py
+          if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
+            echo "RUN_TYPE=manual" >> $GITHUB_ENV
+          else
+            echo "RUN_TYPE=scheduled" >> $GITHUB_ENV
+          fi
+
+      - name: Run Weather Bot
+        run: python weather_bot.py
