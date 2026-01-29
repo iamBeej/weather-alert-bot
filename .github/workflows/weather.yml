@@ -39,4 +39,4 @@ jobs:
           fi
 
       - name: Run Weather Bot
-        run: python weather_bot.py
+        run: python main.py

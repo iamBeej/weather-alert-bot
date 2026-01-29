@@ -1,7 +1,7 @@
 # ⚡ Weather Alert Bot
 
 **Developer:** Bryant James Mingoy  
-**Project:** Test Project – Weather Alert Bot  
+**Test Project:** Weather Alert Bot  
 
 ---
 
