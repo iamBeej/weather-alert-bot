@@ -1,33 +1,23 @@
-# ⚡🌤 Weather Alert Bot
+# ⚡ Weather Alert Bot
 
-**Developer:** Bryant James Mingoy
-**Project:** Weather Alert Bot  
-
----
-
-## 🏷️ Badges
-
-![Python](https://img.shields.io/badge/python-3.11-blue)  
-![Workflow](https://github.com/<USERNAME>/<REPO>/actions/workflows/main.yml/badge.svg)  
-![Slack](https://img.shields.io/badge/slack-alerts-green)  
-![Google Sheets](https://img.shields.io/badge/google-sheets-ready-blue)  
-![Status](https://img.shields.io/badge/status-ready-brightgreen)
+**Developer:** Bryant James Mingoy  
+**Project:** Test Project – Weather Alert Bot  
 
 ---
 
-## 📌 1️⃣ Project Overview
+## 1️⃣ __Project Overview__
 
-This Python bot monitors **New York City weather** and performs:  
+This Python bot monitors New York City weather and performs the following tasks:
 
-- 🌤 **Fetch** real-time weather from **OpenWeatherMap API (free tier)**  
-- 📊 **Log** hourly or on-demand forecasts to **Google Sheets**  
-- 📢 **Alert** via Slack for snow or storm conditions  
+- 🌤 Fetch real-time weather from OpenWeatherMap API (free tier)  
+- 📊 Log hourly or on-demand forecasts to Google Sheets  
+- 📢 Send Slack alerts for snow or storm conditions  
 
 **Purpose:** Showcase Python automation, logging, and alerting skills.
 
 ---
 
-## 🗂 2️⃣ Repository Structure
+## 2️⃣ __Repository Structure__
 
 ```
 weather-alert-bot/
@@ -43,27 +33,27 @@ weather-alert-bot/
 
 ---
 
-## 📊 3️⃣ Google Sheet Logging
+## 3️⃣ __Google Sheet Logging__
 
-**Columns:**  
+**Columns:**
 
-1. **Log** – Internal ID / timestamp  
-2. **Forecasted Time** – Date & time of forecast  
-3. **Temp (°C)** – Temperature  
-4. **Conditions** – Weather description (Clear, Snow, etc.)  
-5. **Wind (m/s)** – Wind speed  
-6. **Precip (%)** – Chance of precipitation  
-7. **Run Type** – Scheduled vs Manual  
+1. 📝 Log – Internal ID / timestamp  
+2. 📅 Forecasted Time – Date & time of forecast  
+3. 🌡 Temp (°C) – Temperature  
+4. ⛅ Conditions – Weather description (Clear, Snow, etc.)  
+5. 🌬 Wind (m/s) – Wind speed  
+6. ❄ Precip (%) – Chance of precipitation  
+7. 🔄 Run Type – Scheduled vs Manual  
 
-**Features:**  
+**Features:**
 
-- 🔹 Conditional formatting highlights severe weather  
-- 🔹 Clean layout for quick scanning  
-- 🔹 Supports hourly and manual runs  
+- Conditional formatting highlights severe weather  
+- Clean layout for quick scanning  
+- Supports hourly and manual runs  
 
 ---
 
-## 🛎 4️⃣ Slack Alerts
+## 4️⃣ __Slack Alerts__
 
 **Example message:**
 
@@ -79,16 +69,16 @@ Safety Reminder: Please drive carefully; roads may be slippery.
 
 ---
 
-## 🏗 5️⃣ Setup Instructions
+## 5️⃣ __Setup Instructions__
 
-### 📥 Step 1 – Clone the Repository
-```
+**Step 1 – Clone the Repository**
+```bash
 git clone https://github.com/<USERNAME>/<REPO>.git
 cd weather-alert-bot
 ```
 
-### 🛠 Step 2 – Create & Activate Virtual Environment
-```
+**Step 2 – Create & Activate Virtual Environment**
+```bash
 python -m venv venv
 # Windows
 venv\Scripts\activate
@@ -96,27 +86,29 @@ venv\Scripts\activate
 source venv/bin/activate
 ```
 
-### 📦 Step 3 – Install Dependencies
-```
+**Step 3 – Install Dependencies**
+```bash
 pip install -r requirements.txt
 ```
 
-### 🔑 Step 4 – Configure API Keys
+**Step 4 – Configure API Keys**
+
 1. Copy `.env.example` → `.env`  
-2. Add your actual API keys:
+2. Add your API keys:
+
 ```
 OPENWEATHER_API_KEY=your_key_here
 GOOGLE_SHEETS_KEY=your_key_here
 SLACK_WEBHOOK_URL=your_url_here
 ```
 
-> ⚠️ `.env` **must not** be committed. `.env.example` is safe to include.
+> 🔒 `.env` must not be committed. `.env.example` is safe to include.
 
 ---
 
-## ▶️ 6️⃣ Running the Bot
+## 6️⃣ __Running the Bot__
 
-```
+```bash
 python main.py
 ```
 
@@ -128,60 +120,44 @@ python main.py
 
 ---
 
-## 📚 7️⃣ Dependencies
+## 7️⃣ __Dependencies__
 
-- `requests>=2.31.0` – API requests  
-- `gspread>=6.2.1` – Google Sheets integration  
-- `google-auth>=2.23.0` – Google API auth  
-- `google-auth-oauthlib>=1.1.0` – OAuth2 support  
-- `google-auth-httplib2>=0.1.0` – HTTP transport  
-- `python-dotenv>=1.0.0` – Manage environment variables  
-- `pytz>=2025.2` – Timezone support  
-- `schedule>=1.2.0` – Optional scheduling library  
-
----
-
-## 📝 8️⃣ Notes
-
-- 🔒 Keep API keys in `.env`  
-- 📄 `.env.example` provided as template  
-- ✅ Dependencies verified in a clean virtual environment  
+- requests>=2.31.0  
+- gspread>=6.2.1  
+- google-auth>=2.23.0  
+- google-auth-oauthlib>=1.1.0  
+- google-auth-httplib2>=0.1.0  
+- python-dotenv>=1.0.0  
+- pytz>=2025.2  
+- schedule>=1.2.0  
 
 ---
 
-## 🔐 9️⃣ GitHub Secrets Setup
+## 8️⃣ __GitHub Secrets Setup__
 
-To run the workflow and keep your API keys secure, configure **GitHub Secrets**:  
+To run the workflow securely, configure GitHub Secrets:
 
-### 1️⃣ Go to Your Repository Settings
-1. Open your GitHub repo in a browser  
-2. Click on **Settings** → **Secrets and variables** → **Actions** → **New repository secret**
+1. Go to **Settings → Secrets and variables → Actions → New repository secret**  
+2. Add the following:
 
-### 2️⃣ Add the Following Secrets
-| Secret Name             | Description                                 |
-|-------------------------|---------------------------------------------|
-| `OPENWEATHER_API_KEY`   | Your OpenWeatherMap API key                 |
-| `GOOGLE_SHEETS_KEY`     | Google Sheets API service account key       |
-| `SLACK_WEBHOOK_URL`     | Slack webhook URL for alerts                |
+    | Secret Name             | Description                                 |
+    |-------------------------|---------------------------------------------|
+    | OPENWEATHER_API_KEY      | OpenWeatherMap API key                      |
+    | GOOGLE_SHEETS_KEY        | Google Sheets API service account key      |
+    | SLACK_WEBHOOK_URL        | Slack webhook URL for alerts                |
 
-> ⚠️ Keep the **exact names** as above – the workflow references these names.
+3. Test the workflow by going to **Actions → Weather Alert Bot → Run workflow**  
 
-### 3️⃣ Test the Setup
-1. Go to **Actions** → **Weather Alert Bot** workflow  
-2. Click **Run workflow** → choose `main` branch → **Run workflow**  
-3. Verify:
-   - Google Sheets receives new logs  
-   - Slack receives alerts (if weather threshold met)  
-
-> Once this is set, your workflow will run **hourly** automatically and the **workflow badge** will reflect the run status.
+    - Google Sheets should receive new logs  
+    - Slack should receive alerts if weather threshold is met  
 
 ---
 
-## 🟢 10️⃣ Project Status
+## 9️⃣ __Project Summary__
 
-- ✅ Google Sheets logging implemented and visually formatted  
+- ✅ Google Sheets logging implemented and formatted  
 - ✅ Slack alerts configured and logic verified  
-- ✅ Dependencies installed and verified in a virtual environment  
-- ✅ GitHub Actions workflow set up for hourly automation  
-- ✅ API keys securely managed via `.env` locally and GitHub Secrets  
+- ✅ Dependencies installed and verified  
+- ✅ GitHub Actions workflow set up  
+- ✅ API keys managed via `.env` locally and GitHub Secrets  
 - ✅ Project ready for local execution and portfolio showcase
