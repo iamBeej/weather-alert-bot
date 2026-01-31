@@ -13,47 +13,47 @@ from google.oauth2.service_account import Credentials
 # CONFIGURATION
 # ======================
 
-# Load environment variables from .env (for local dev)
+# Load environment variables from .env (local development)
 load_dotenv(find_dotenv())
 
+# API keys and credentials
 OWM_API_KEY = os.getenv("OPENWEATHER_API_KEY")
 SLACK_WEBHOOK_URL = os.getenv("SLACK_WEBHOOK_URL")
 GOOGLE_CREDS_JSON = os.getenv("GOOGLE_CREDENTIALS_JSON")  # GitHub Actions secret
 GOOGLE_CREDENTIALS = os.getenv("GOOGLE_CREDENTIALS")      # local file
 
 # ======================
-# RUN TYPE DETECTIONl
+# RUN TYPE DETECTION
 # ======================
-# Local runs = manual
-# GitHub runs = passed from workflow_dispatch or default scheduled
-
+# Determine if the script is running locally (manual) or via GitHub Actions (scheduled)
 if "GITHUB_ACTIONS" in os.environ:
-    # running inside GitHub Actions
-    RUN_TYPE = os.getenv("RUN_TYPE", "Scheduled")  # passed from workflow YAML
+    RUN_TYPE = os.getenv("RUN_TYPE", "Scheduled")
 else:
-    # running locally
     RUN_TYPE = "Manual"
 
 # ======================
 # WEATHER SETTINGS
 # ======================
 
+# Location and units
 CITY = "New York"
 COUNTRY_CODE = "US"
 UNITS = "metric"
 
+# Alert thresholds
 PRECIP_THRESHOLD = 0.5
 WIND_THRESHOLD = 10
 ALERT_KEYWORDS = ["tornado", "hurricane", "blizzard", "snow", "storm", "thunder", "rain"]
 
+# Severe weather conditions
 SEVERE_WEATHERS = [
     "tornado", "hurricane", "blizzard", "thunderstorm",
     "extreme heat", "heat", "cold", "frost"
 ]
 
-ALERTED_FILE = "alerted.txt"
+ALERTED_FILE = "alerted.txt"  # Stores timestamps of already sent alerts
 
-# Weather icons and advisory mapping
+# Mapping weather conditions to icons
 WEATHER_ICONS = {
     "clear sky": "☀️", "few clouds": "🌤️", "scattered clouds": "⛅",
     "broken clouds": "🌥️", "overcast clouds": "☁️", "light rain": "🌦️",
@@ -64,6 +64,7 @@ WEATHER_ICONS = {
     "extreme heat": "🔥", "heat": "🔥", "cold": "❄️", "frost": "❄️",
 }
 
+# Advisory messages for different conditions
 ADVISORY_MAP = {
     "snow": "Please drive carefully; roads may be slippery.",
     "blizzard": "Avoid traveling; visibility may be very low.",
@@ -95,17 +96,20 @@ ADVISORY_MAP = {
 # ======================
 
 def build_forecast_url():
+    """Constructs the OpenWeatherMap API URL for the forecast."""
     return f"https://api.openweathermap.org/data/2.5/forecast?q={quote(CITY)},{COUNTRY_CODE}&appid={OWM_API_KEY}&units={UNITS}"
 
 def get_forecast():
+    """Fetches the latest weather forecast data from OpenWeatherMap API."""
     try:
         response = requests.get(build_forecast_url(), timeout=10)
         response.raise_for_status()
-        return response.json()["list"][0]
+        return response.json()["list"][0]  # return first forecast entry
     except requests.RequestException as e:
         raise RuntimeError(f"Forecast API request failed: {e}")
 
 def should_send_alert(conditions, precip, wind):
+    """Determines if an alert should be sent based on weather conditions and thresholds."""
     conditions_lower = [c.lower() for c in conditions]
     return (
         any(keyword in cond for cond in conditions_lower for keyword in ALERT_KEYWORDS)
@@ -114,6 +118,7 @@ def should_send_alert(conditions, precip, wind):
     )
 
 def get_severe_condition(conditions):
+    """Returns the first severe weather condition detected from the forecast."""
     conditions_lower = [c.lower() for c in conditions]
     for severe in SEVERE_WEATHERS:
         for cond in conditions_lower:
@@ -122,6 +127,7 @@ def get_severe_condition(conditions):
     return None
 
 def get_advisory(conditions):
+    """Retrieves the advisory message based on detected severe weather."""
     severe = get_severe_condition(conditions)
     if severe:
         return ADVISORY_MAP.get(severe, "")
@@ -132,7 +138,9 @@ def get_advisory(conditions):
     return ""
 
 def get_gspread_client():
+    """Authenticates and returns a Google Sheets client."""
     if GOOGLE_CREDS_JSON:
+        # Use JSON from GitHub secret
         creds_dict = json.loads(GOOGLE_CREDS_JSON)
         tmp_file = tempfile.NamedTemporaryFile(mode="w+", delete=False, suffix=".json")
         json.dump(creds_dict, tmp_file)
@@ -142,6 +150,7 @@ def get_gspread_client():
             "https://www.googleapis.com/auth/drive",
         ])
     else:
+        # Use local credentials file
         creds = Credentials.from_service_account_file(GOOGLE_CREDENTIALS, scopes=[
             "https://www.googleapis.com/auth/spreadsheets",
             "https://www.googleapis.com/auth/drive",
@@ -149,6 +158,7 @@ def get_gspread_client():
     return gspread.authorize(creds)
 
 def log_to_google_sheets(row):
+    """Appends a row of weather data to the Google Sheet."""
     try:
         client = get_gspread_client()
         sheet = client.open("WeatherBotLogs").sheet1
@@ -157,6 +167,7 @@ def log_to_google_sheets(row):
         print(f"Google Sheets logging failed: {e}")
 
 def send_slack_alert(message):
+    """Sends a formatted alert message to Slack via webhook."""
     try:
         resp = requests.post(SLACK_WEBHOOK_URL, json={"text": message}, timeout=5)
         if resp.status_code != 200:
@@ -165,6 +176,7 @@ def send_slack_alert(message):
         print(f"Slack alert request failed: {e}")
 
 def load_alerted_timestamps():
+    """Loads timestamps of previously sent alerts to prevent duplicates."""
     try:
         with open(ALERTED_FILE, "r") as f:
             return set(line.strip() for line in f)
@@ -172,14 +184,16 @@ def load_alerted_timestamps():
         return set()
 
 def save_alerted_timestamp(forecast_time):
+    """Records a timestamp of a sent alert."""
     with open(ALERTED_FILE, "a") as f:
         f.write(f"{forecast_time}\n")
 
 # ======================
-# MAIN
+# MAIN FUNCTION
 # ======================
 
 def main():
+    """Main workflow: fetch forecast, log to Google Sheets, and send Slack alerts if needed."""
     try:
         forecast = get_forecast()
     except RuntimeError as e:
@@ -199,7 +213,7 @@ def main():
     precip_prob = round(float(forecast.get("pop", 0)), 2)
     precip_percent = int(precip_prob * 100)
 
-    # Log to Google Sheets with run type
+    # Log weather data to Google Sheets
     log_to_google_sheets([
         logged_at,
         forecast_time,
@@ -210,14 +224,16 @@ def main():
         RUN_TYPE
     ])
 
+    # Check if alert should be sent
     if should_send_alert(conditions, precip_prob, wind_speed):
         alerted = load_alerted_timestamps()
         if forecast_time in alerted:
-            return
+            return  # Skip if alert already sent
 
         advisory = get_advisory(conditions)
         friendly_date = datetime.strptime(forecast_time, "%Y-%m-%d %H:%M:%S").strftime("%A, %d %B %Y at %I:%M %p")
 
+        # Determine precipitation phrase
         if any("snow" in c.lower() for c in conditions):
             precip_phrase = "chance of snow"
         elif any("rain" in c.lower() or "drizzle" in c.lower() for c in conditions):
@@ -228,6 +244,7 @@ def main():
         severe_condition = get_severe_condition(conditions)
         icon = WEATHER_ICONS.get(severe_condition, icons[0])
 
+        # Build alert message
         message = (
             f":warning: {icon} NYC Weather Alert {icon} :warning:\n"
             f"{', '.join(desc.title() for desc in conditions)} expected on {friendly_date} at {temp_f}°F.\n"
@@ -236,6 +253,7 @@ def main():
         if advisory:
             message += f"Safety Reminder: {advisory}"
 
+        # Send Slack alert and save timestamp
         send_slack_alert(message)
         save_alerted_timestamp(forecast_time)
 
